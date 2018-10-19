@@ -1,2 +1,3 @@
-{:deps  {cheshire {:mvn/version "5.8.1"}}
+{:deps  {cheshire    {:mvn/version "5.8.1"}
+         factual/geo {:mvn/version "2.1.1"}}
  :paths ["src" "resources"]}

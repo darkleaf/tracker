@@ -1,32 +1,54 @@
 (ns tracker.core
   (:require
-   [cheshire.core :as cheshire]
-   [clojure.java.io :as io]))
+   [tracker.reader :as treader]
+   [tracker.writer :as twriter]
+   [geo.spatial :as spatial]))
 
-(def x-json (-> "x.json" io/resource slurp (cheshire/decode true)))
-(def y-json (-> "y.json" io/resource slurp (cheshire/decode true)))
+(defn distance [x y]
+  (let [xp (-> x :point)
+        yp (-> y :point)]
+    (spatial/distance xp yp)))
 
+(defn speed [x y]
+  (let [xp (-> x :point)
+        yp (-> y :point)
+        xt (-> x :at .toEpochMilli)
+        yt (-> y :at .toEpochMilli)
 
-(defn ->geo-json [data]
-  (let [points (for [item data] (-> item :position reverse))]
-    {:type       "Feature"
-     :geometry   {:type        "LineString"
-                  :coordinates points}
-     :properties {}}))
+        distance (spatial/distance xp yp)
+        time     (/ (- yt xt) 1000)]
+    (/ distance time)))
 
-(defn filter [data speed-limit])
-
-
-
-
-
-
+;; speed-limit м/с
+(defn remove-anomalies [speed-limit]
+  (fn [xf]
+    (let [prev (volatile! ::none)]
+      (fn
+        ([] (xf))
+        ([result] (xf result))
+        ([result input]
+         (if (and (not= ::none @prev)
+                  (< speed-limit (speed @prev input)))
+           result
+           (do
+             (vreset! prev input)
+             (xf result input))))))))
 
 
 
 
 (comment
-  (as-> x-json <>
-    (->geo-json <>)
-    (cheshire/encode <> {:pretty true})
-    (spit "output.json" <>)))
+  (let [x (treader/load-data "x.json")]
+    (twriter/write "output.json" x)))
+
+
+(comment
+  (let [x                (treader/load-data "x.json")
+        speed-limit-km-h 120
+        speed-limit      (/ (* speed-limit-km-h 1000) (* 60 60))
+        filtered         (into [] (remove-anomalies speed-limit) x)]
+    (prn (count x)
+         (count filtered))
+    (twriter/write "output.json" filtered)))
+
+
