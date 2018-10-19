@@ -1,0 +1,5 @@
+{:aliases {:cider {:extra-deps {darkleaf/cider-tools-desp
+                                {:git/url "https://github.com/darkleaf/cider-tools-deps.git"
+                                 :sha     "1025b510db24b36ab741bc5599e36806eec904ec"}}
+                   :main-opts  ["-m" "darkleaf.cider-tools-deps"
+                                "port" "4444" "host" "0.0.0.0"]}}}
