@@ -14,7 +14,7 @@
         time     (/ (- yt xt) 1000)]
     (/ distance time)))
 
-(defn window [xf]
+(defn window-2 [xf]
   (let [vprev (volatile! nil)]
     (fn
       ([] (xf))
@@ -27,12 +27,11 @@
 (defn not-anomaly? [speed-limit prev curr]
   (or
    (nil? prev)
-   (> speed-limit (speed prev curr))))
-
+   (< 0 (speed prev curr) speed-limit)))
 
 (defn remove-anomalies [data speed-limit]
   (into []
-        (comp window
+        (comp window-2
               (filter (fn [[prev curr]]
                         (not-anomaly? speed-limit prev curr)))
               (map last))
