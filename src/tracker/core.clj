@@ -25,17 +25,33 @@
       ([result input]
        (let [prev @vprev]
          (vreset! vprev input)
-         (xf result [prev input]))))))
+         (xf result {:item input, :previous prev}))))))
 
-(defn with-stat [f initial]
+(defn with-reducer [f initial]
   (fn [xf]
-    (let [vstat (volatile! initial)]
+    (let [vacc (volatile! initial)]
       (fn
         ([] (xf))
         ([result] (xf result))
         ([result input]
-         (let [stat (vswap! vstat f input)]
-           (xf result [input stat])))))))
+         (let [acc (vswap! vacc f input)]
+           (xf result {:item input, :acc acc})))))))
+
+(defn with-last  [xf]
+  (let [inputs (java.util.ArrayList.)
+        vlast  (volatile! nil)]
+    (fn
+      ([] (xf))
+      ([result]
+       (let [result' (reduce (fn [result input]
+                               (xf result {:item input, :last @vlast}))
+                             result
+                             inputs)]
+         (xf result')))
+      ([result input]
+       (.add inputs input)
+       (vreset! vlast input)
+       result))))
 
 (defn not-anomaly? [speed-limit prev curr]
   (or
@@ -45,32 +61,31 @@
 (defn remove-anomalies [data speed-limit]
   (into []
         (comp window-2
-              (filter (fn [[prev curr]]
-                        (not-anomaly? speed-limit prev curr)))
-              (map last))
+              (filter (fn [{:keys [item previous]}]
+                        (not-anomaly? speed-limit previous item)))
+              (map :item))
         data))
 
 (defn compress [data n]
-  (let [stat-fn        (fn [stat [prev curr]]
-                         (cond
-                           (nil? prev) stat
-                           :else       (+ stat (distance prev curr))))
-        total-distance (transduce (comp window-2
-                                        (with-stat stat-fn 0)
-                                        (map last))
-                                  (fn
-                                    ([acc] acc)
-                                    ([_acc item] item))
-                                  0 data)
-        step           (/ total-distance (dec n))]
+  (let [distance-fn (fn [acc {:keys [item previous]}]
+                      (cond
+                        (nil? previous) acc
+                        :else           (+ acc (distance previous item))))
+        part-fn     (fn [item]
+                      (let [distance       (-> item :item :acc)
+                            total-distance (-> item :last :acc)
+                            step           (/ total-distance (dec n))]
+                        (int (/ distance step))))]
     (into []
-          (comp window-2
-                (with-stat stat-fn 0)
-                (partition-by (fn [[_ distance]]
-                                (int (/ distance step))))
-                (map first)
-                (map first)
-                (map last))
+          (comp
+           window-2
+           (with-reducer distance-fn 0)
+           with-last
+           (partition-by part-fn)
+           (map first)
+           (map :item)
+           (map :item)
+           (map :item))
           data)))
 
 (comment
