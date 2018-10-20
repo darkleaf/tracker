@@ -17,15 +17,22 @@
 (defn distance [x y]
   (spatial/distance (:point x) (:point y)))
 
-(defn window-2 [xf]
-  (let [vprev (volatile! nil)]
-    (fn
-      ([] (xf))
-      ([result] (xf result))
-      ([result input]
-       (let [prev @vprev]
-         (vreset! vprev input)
-         (xf result {:item input, :previous prev}))))))
+(defn window-2
+  ([] (window-2 (constantly true)))
+  ([pred]
+   (fn [xf]
+     (let [vprev (volatile! nil)]
+       (fn
+         ([] (xf))
+         ([result] (xf result))
+         ([result input]
+          (let [prev  @vprev
+                input' {:item input, :previous prev}]
+            (if-not (pred input')
+              result
+              (do
+                (vreset! vprev input)
+                (xf result input'))))))))))
 
 (defn with-reducer [f initial]
   (fn [xf]
@@ -60,9 +67,8 @@
 
 (defn remove-anomalies [data speed-limit]
   (into []
-        (comp window-2
-              (filter (fn [{:keys [item previous]}]
-                        (not-anomaly? speed-limit previous item)))
+        (comp (window-2 (fn [{:keys [item previous]}]
+                          (not-anomaly? speed-limit previous item)))
               (map :item))
         data))
 
@@ -78,7 +84,7 @@
                         (int (/ distance step))))]
     (into []
           (comp
-           window-2
+           (window-2)
            (with-reducer distance-fn 0)
            with-last
            (partition-by part-fn)
@@ -114,3 +120,9 @@
          (count filtered)
          (count compressed))
     (twriter/write "output.json" compressed)))
+
+
+
+(let [t (transient [])
+      t' (conj! t 1)]
+  (identical? t t'))
