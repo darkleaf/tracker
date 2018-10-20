@@ -93,6 +93,10 @@
     (twriter/write "output.json" data)))
 
 (comment
+  (let [data (treader/load-data "y.json")]
+    (twriter/write "output.json" data)))
+
+(comment
   (let [data             (treader/load-data "x.json")
         speed-limit-km-h 120
         speed-limit      (/ (* speed-limit-km-h 1000) (* 60 60))
