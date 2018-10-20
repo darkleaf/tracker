@@ -17,76 +17,53 @@
 (defn distance [x y]
   (spatial/distance (:point x) (:point y)))
 
-(defn window-2 [xf]
-  (let [vprev (volatile! nil)]
-    (fn
-      ([] (xf))
-      ([result] (xf result))
-      ([result input]
-       (let [prev @vprev]
-         (vreset! vprev input)
-         (xf result {:item input, :previous prev}))))))
-
-(defn with-reducer [f initial]
-  (fn [xf]
-    (let [vacc (volatile! initial)]
-      (fn
-        ([] (xf))
-        ([result] (xf result))
-        ([result input]
-         (let [acc (vswap! vacc f input)]
-           (xf result {:item input, :acc acc})))))))
-
-(defn with-last  [xf]
-  (let [inputs (java.util.ArrayList.)
-        vlast  (volatile! nil)]
-    (fn
-      ([] (xf))
-      ([result]
-       (let [result' (reduce (fn [result input]
-                               (xf result {:item input, :last @vlast}))
-                             result
-                             inputs)]
-         (xf result')))
-      ([result input]
-       (.add inputs input)
-       (vreset! vlast input)
-       result))))
 
 (defn not-anomaly? [speed-limit prev curr]
-  (or
-   (nil? prev)
-   (< 0 (speed prev curr) speed-limit)))
+  (< 0 (speed prev curr) speed-limit))
 
 (defn remove-anomalies [data speed-limit]
-  (into []
-        (comp window-2
-              (filter (fn [{:keys [item previous]}]
-                        (not-anomaly? speed-limit previous item)))
-              (map :item))
-        data))
+  (reduce
+   (fn [acc point]
+     (let [last-point (peek acc)]
+       (if (or (nil? last-point)
+               (not-anomaly? speed-limit last-point point))
+         (conj acc point)
+         acc)))
+   []
+   data))
+
 
 (defn compress [data n]
-  (let [distance-fn (fn [acc {:keys [item previous]}]
-                      (cond
-                        (nil? previous) acc
-                        :else           (+ acc (distance previous item))))
-        part-fn     (fn [item]
-                      (let [distance       (-> item :item :acc)
-                            total-distance (-> item :last :acc)
-                            step           (/ total-distance (dec n))]
-                        (int (/ distance step))))]
-    (into []
-          (comp
-           window-2
-           (with-reducer distance-fn 0)
-           with-last
-           (partition-by part-fn)
-           (map first)
-           (map :item)
-           (map :item)
-           (map :item))
-          data)))
+  (let [total-distance (reduce
+                        (fn [{:keys [last-point] :as acc} point]
+                          (if (nil? last-point)
+                            (assoc acc :last-point point)
+                            (-> acc
+                                (assoc :last-point point)
+                                (update :distance + (distance last-point point)))))
+                        {:last-point nil, :distance 0}
+                        data)
+        step           (/ (:distance total-distance)  (dec n))
+        result         (reduce
+                        (fn [{:keys [points, last-point distance-acc, segment] :as acc} point]
+                          (if (nil? last-point)
+                            (-> acc
+                                (update :points conj point)
+                                (assoc :last-point point)
+                                (assoc :segment 0))
+                            (let [curr-segment (int (/ distance-acc step))]
+                              (if (not= curr-segment segment)
+                                (-> acc
+                                    (update :points conj point)
+                                    (assoc :last-point point)
+                                    (update :distance-acc + (distance last-point point))
+                                    (assoc :segment curr-segment))
+                                (-> acc
+                                    (assoc :last-point point)
+                                    (update :distance-acc + (distance last-point point)))))))
+                        {:points [], :last-point nil, :distance-acc 0, :segment nil}
+                        data)]
+    (:points result)))
 
 (comment
   (let [data (treader/load-data "x.json")]
