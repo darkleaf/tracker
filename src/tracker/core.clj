@@ -17,53 +17,35 @@
 (defn distance [x y]
   (spatial/distance (:point x) (:point y)))
 
-
 (defn not-anomaly? [speed-limit prev curr]
-  (< 0 (speed prev curr) speed-limit))
+  (< (speed prev curr) speed-limit))
 
-(defn remove-anomalies [data speed-limit]
+(defn remove-anomalies [points speed-limit]
   (reduce
    (fn [acc point]
      (let [last-point (peek acc)]
-       (if (or (nil? last-point)
-               (not-anomaly? speed-limit last-point point))
+       (if (not-anomaly? speed-limit last-point point)
          (conj acc point)
          acc)))
-   []
-   data))
+   [(first points)]
+   (drop 1 points)))
 
-
-(defn compress [data n]
-  (let [total-distance (reduce
-                        (fn [{:keys [last-point] :as acc} point]
-                          (if (nil? last-point)
-                            (assoc acc :last-point point)
-                            (-> acc
-                                (assoc :last-point point)
-                                (update :distance + (distance last-point point)))))
-                        {:last-point nil, :distance 0}
-                        data)
-        step           (/ (:distance total-distance)  (dec n))
-        result         (reduce
-                        (fn [{:keys [points, last-point distance-acc, segment] :as acc} point]
-                          (if (nil? last-point)
-                            (-> acc
-                                (update :points conj point)
-                                (assoc :last-point point)
-                                (assoc :segment 0))
-                            (let [curr-segment (int (/ distance-acc step))]
-                              (if (not= curr-segment segment)
-                                (-> acc
-                                    (update :points conj point)
-                                    (assoc :last-point point)
-                                    (update :distance-acc + (distance last-point point))
-                                    (assoc :segment curr-segment))
-                                (-> acc
-                                    (assoc :last-point point)
-                                    (update :distance-acc + (distance last-point point)))))))
-                        {:points [], :last-point nil, :distance-acc 0, :segment nil}
-                        data)]
-    (:points result)))
+(defn compress [points n]
+  (let [with-distance (reduce
+                       (fn [acc point]
+                         (let [last-point (-> acc peek :point)
+                               dist       (-> acc peek :dist)]
+                           (conj acc {:point point
+                                      :dist (+ dist (distance last-point point))})))
+                       [{:point (first points), :dist 0}]
+                       (drop 1 points))
+        total-distance (-> with-distance peek :dist)
+        step           (/ total-distance (dec n))]
+    (->> with-distance
+         (partition-by (fn [{:keys [dist]}]
+                         (int (/ dist step))))
+         (map first)
+         (map :point))))
 
 (comment
   (let [data (treader/load-data "x.json")]
