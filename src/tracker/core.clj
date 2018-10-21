@@ -4,7 +4,7 @@
    [tracker.writer :as twriter]
    [geo.spatial :as spatial]))
 
-(defn speed [x y]
+(defn speed-between [x y]
   (let [xp (-> x :point)
         yp (-> y :point)
         xt (-> x :at .toEpochMilli)
@@ -14,38 +14,42 @@
         time     (/ (- yt xt) 1000)]
     (/ distance time)))
 
-(defn distance [x y]
+(defn distance-between [x y]
   (spatial/distance (:point x) (:point y)))
 
 (defn not-anomaly? [speed-limit prev curr]
   (< (speed prev curr) speed-limit))
 
 (defn remove-anomalies [points speed-limit]
-  (reduce
-   (fn [acc point]
-     (let [last-point (peek acc)]
-       (if (not-anomaly? speed-limit last-point point)
-         (conj acc point)
-         acc)))
-   [(first points)]
-   (drop 1 points)))
+  (reduce (fn [acc point]
+            (let [last-point (peek acc)]
+              (if (not-anomaly? speed-limit last-point point)
+                (conj acc point)
+                acc)))
+          (->> points (take 1) vec)
+          (drop 1 points)))
+
+(defn- add-distance [points]
+  (reduce (fn [acc point]
+            (let [last-point (peek acc)
+                  distance   (+ (::distance last-point)
+                                (distance-between last-point point))
+                  point      (assoc point ::distance distance)]
+              (conj acc point)))
+          (->> points
+               (take 1)
+               (map #(assoc % ::distance 0))
+               (vec))
+          (drop 1 points)))
 
 (defn compress [points n]
-  (let [with-distance (reduce
-                       (fn [acc point]
-                         (let [last-point (-> acc peek :point)
-                               dist       (-> acc peek :dist)]
-                           (conj acc {:point point
-                                      :dist (+ dist (distance last-point point))})))
-                       [{:point (first points), :dist 0}]
-                       (drop 1 points))
-        total-distance (-> with-distance peek :dist)
+  (let [with-distance  (add-distance points)
+        total-distance (-> with-distance peek (get ::distance 0))
         step           (/ total-distance (dec n))]
     (->> with-distance
-         (partition-by (fn [{:keys [dist]}]
-                         (int (/ dist step))))
-         (map first)
-         (map :point))))
+         (partition-by (fn [{::keys [distance]}]
+                         (int (/ distance step))))
+         (map first))))
 
 (comment
   (let [data (treader/load-data "x.json")]
